@@ -2,6 +2,7 @@ package main
 
 import (
     "context"
+    "encoding/json"
     "fmt"
     "html/template"
     "log"
@@ -97,23 +98,6 @@ func main() {
             AccessToken: accessToken,
         })
 
-        // Define the HTML template for loading message
-        loadingTmpl := template.Must(template.New("loading").Parse(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Loading...</title>
-                <style>
-                    body { font-family: Arial, sans-serif; margin: 20px; text-align: center; }
-                </style>
-            </head>
-            <body>
-                <h2>Loading data...</h2>
-            </body>
-            </html>
-        `))
-        loadingTmpl.Execute(w, nil)
-
         // Fetch the home timeline
         ctx := context.Background()
         timeline, err := client.GetTimelineHome(ctx, nil)
@@ -136,17 +120,96 @@ func main() {
                 <style>
                     body { font-family: Arial, sans-serif; margin: 20px; }
                     ul { list-style-type: none; padding: 0; }
-                    li { margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+                    li { margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; position: relative; }
                     li:nth-child(odd) { background-color: #f9f9f9; }
+                    .avatar { width: 50px; height: 50px; border-radius: 25px; vertical-align: middle; }
+                    .username { font-weight: bold; margin-left: 10px; }
+                    .icons { margin-top: 10px; }
+                    .icon { margin-right: 10px; cursor: pointer; }
+                    .reply-form { display: none; margin-top: 10px; }
                 </style>
+                <script>
+                    function toggleReplyForm(postId) {
+                        var replyForm = document.getElementById('reply-form-' + postId);
+                        replyForm.style.display = 'block';
+                    }
+                </script>
             </head>
             <body>
                 <h2>Gotosocial Home Timeline</h2>
                 <ul>
                     {{range .Timeline}}
-                        <li><strong>{{.Account.Username}}</strong>: {{safeHTML .Content}}</li>
+                        <li id="post-{{.ID}}">
+                            <img src="{{.Account.Avatar}}" alt="avatar" class="avatar">
+                            <span class="username">{{.Account.Username}}</span>
+                            <p>{{safeHTML .Content}}</p>
+                            <div class="icons">
+                                <span class="icon" onclick="toggleReplyForm('{{.ID}}')">↩️</span>
+                                <span class="icon" onclick="boost('{{.ID}}')">🔄</span>
+                                <span class="icon" onclick="favourite('{{.ID}}')">⭐</span>
+                            </div>
+                            <div id="reply-form-{{.ID}}" class="reply-form">
+                                <form onsubmit="submitReply(event, '{{.Account.Username}}', '{{.ID}}'); return false;">
+                                    <textarea id="reply-text-{{.ID}}" rows="2" cols="30" placeholder="Reply to @{{.Account.Username}}"></textarea><br>
+                                    <button type="submit">Send</button>
+                                </form>
+                            </div>
+                        </li>
                     {{end}}
                 </ul>
+                <script>
+                    function submitReply(event, username, postId) {
+                        event.preventDefault();
+                        var replyText = document.getElementById('reply-text-' + postId).value;
+                        fetch('/reply', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ id: postId, replyText: '@' + username + ' ' + replyText })
+                        }).then(response => {
+                            if (response.ok) {
+                                alert('Replied successfully');
+                                document.getElementById('reply-text-' + postId).value = '';
+                                document.getElementById('reply-form-' + postId).style.display = 'none';
+                            } else {
+                                alert('Failed to reply');
+                            }
+                        });
+                    }
+
+                    function boost(id) {
+                        fetch('/boost', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ id: id })
+                        }).then(response => {
+                            if (response.ok) {
+                                alert('Boosted successfully');
+                            } else {
+                                alert('Failed to boost');
+                            }
+                        });
+                    }
+
+                    function favourite(id) {
+                        fetch('/favourite', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ id: id })
+                        }).then(response => {
+                            if (response.ok) {
+                                alert('Favourited successfully');
+                            } else {
+                                alert('Failed to favourite');
+                            }
+                        });
+                    }
+                </script>
             </body>
             </html>
         `))
@@ -210,6 +273,105 @@ func main() {
 
         // Redirect to the home page
         http.Redirect(w, r, "/", http.StatusFound)
+    })
+
+    // Define handlers for reply, boost, and favourite actions
+    http.HandleFunc("/reply", func(w http.ResponseWriter, r *http.Request) {
+        var req struct {
+            ID        string `json:"id"`
+            ReplyText string `json:"replyText"`
+        }
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            http.Error(w, "Invalid request", http.StatusBadRequest)
+            return
+        }
+
+        cookie, err := r.Cookie("access_token")
+        if err != nil {
+            http.Error(w, "Not authenticated", http.StatusUnauthorized)
+            return
+        }
+
+        client := mastodon.NewClient(&mastodon.Config{
+            Server:       server,
+            ClientID:     app.ClientID,
+            ClientSecret: app.ClientSecret,
+            AccessToken:  cookie.Value,
+        })
+
+        ctx := context.Background()
+        if _, err := client.PostStatus(ctx, &mastodon.Toot{
+            InReplyToID: mastodon.ID(req.ID),
+            Status:      req.ReplyText,
+            Visibility:  mastodon.VisibilityPublic,
+        }); err != nil {
+            http.Error(w, "Failed to reply", http.StatusInternalServerError)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
+    })
+
+    http.HandleFunc("/boost", func(w http.ResponseWriter, r *http.Request) {
+        var req struct {
+            ID string `json:"id"`
+        }
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            http.Error(w, "Invalid request", http.StatusBadRequest)
+            return
+        }
+
+        cookie, err := r.Cookie("access_token")
+        if err != nil {
+            http.Error(w, "Not authenticated", http.StatusUnauthorized)
+            return
+        }
+
+        client := mastodon.NewClient(&mastodon.Config{
+            Server:       server,
+            ClientID:     app.ClientID,
+            ClientSecret: app.ClientSecret,
+            AccessToken:  cookie.Value,
+        })
+
+        ctx := context.Background()
+        if _, err := client.Reblog(ctx, mastodon.ID(req.ID)); err != nil {
+            http.Error(w, "Failed to boost", http.StatusInternalServerError)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
+    })
+
+    http.HandleFunc("/favourite", func(w http.ResponseWriter, r *http.Request) {
+        var req struct {
+            ID string `json:"id"`
+        }
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            http.Error(w, "Invalid request", http.StatusBadRequest)
+            return
+        }
+
+        cookie, err := r.Cookie("access_token")
+        if err != nil {
+            http.Error(w, "Not authenticated", http.StatusUnauthorized)
+            return
+        }
+
+        client := mastodon.NewClient(&mastodon.Config{
+            Server:       server,
+            ClientID:     app.ClientID,
+            ClientSecret: app.ClientSecret,
+            AccessToken:  cookie.Value,
+        })
+
+        ctx := context.Background()
+        if _, err := client.Favourite(ctx, mastodon.ID(req.ID)); err != nil {
+            http.Error(w, "Failed to favourite", http.StatusInternalServerError)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
     })
 
     // Start the web server
