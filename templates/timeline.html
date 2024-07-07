@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Gotosocial Timeline</title>
+    <link rel="stylesheet" type="text/css" href="/static/style.css">
+    <script>
+        function toggleReplyForm(postId) {
+            var replyForm = document.getElementById('reply-form-' + postId);
+            replyForm.style.display = 'block';
+        }
+
+        function submitReply(event, username, postId) {
+            event.preventDefault();
+            var replyText = document.getElementById('reply-text-' + postId).value;
+            fetch('/reply', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ id: postId, replyText: '@' + username + ' ' + replyText })
+            }).then(response => {
+                if (response.ok) {
+                    alert('Reply sent!');
+                    document.getElementById('reply-form-' + postId).style.display = 'none';
+                } else {
+                    alert('Failed to send reply.');
+                }
+            });
+        }
+
+        function boost(postId) {
+            fetch('/boost', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ id: postId })
+            }).then(response => {
+                if (response.ok) {
+                    alert('Boosted!');
+                } else {
+                    alert('Failed to boost.');
+                }
+            });
+        }
+
+        function favourite(postId) {
+            fetch('/favourite', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ id: postId })
+            }).then(response => {
+                if (response.ok) {
+                    alert('Favorited!');
+                } else {
+                    alert('Failed to favorite.');
+                }
+            });
+        }
+    </script>
+</head>
+
+<body>
+    <h2>Gotosocial Home Timeline</h2>
+    <ul>
+        {{range .Timeline}}
+        <li>
+            <strong>{{.Account.Username}}</strong>: {{safeHTML .Content}}
+            {{if .MediaAttachments}}
+            <div class="media-attachments">
+                {{range .MediaAttachments}}
+                {{if eq .Type "image"}}
+                <img src="{{.URL}}" alt="Image" />
+                {{else if eq .Type "video"}}
+                <video controls>
+                    <source src="{{.URL}}" type="{{.MimeType}}">
+                    Your browser does not support the video tag.
+                </video>
+                {{end}}
+                {{end}}
+            </div>
+            {{end}}
+            <div class="post-actions">
+                <span onclick="toggleReplyForm('{{.ID}}')">↩️</span>
+                <span onclick="boost('{{.ID}}')">🔄</span>
+                <span onclick="favourite('{{.ID}}')">⭐</span>
+            </div>
+            <div id="reply-form-{{.ID}}" class="reply-form" style="display:none;">
+                <textarea id="reply-text-{{.ID}}" placeholder="Write a reply..."></textarea>
+                <button onclick="submitReply(event, '{{.Account.Username}}', '{{.ID}}')">Send</button>
+            </div>
+        </li>
+        {{end}}
+    </ul>
+    {{if .NextPage}}
+    <button onclick="location.href='/next?max_id={{.NextPage}}'">Next Page</button>
+    {{end}}
+</body>
+
+</html>
