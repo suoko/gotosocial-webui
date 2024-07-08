@@ -1,0 +1,12 @@
+body { font-family: Arial, sans-serif; margin: 20px; }
+ul { list-style-type: none; padding: 0; }
+li { margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; position: relative; }
+li:nth-child(odd) { background-color: #f9f9f9; }
+.avatar { width: 50px; height: 50px; border-radius: 25px; vertical-align: middle; }
+.username { font-weight: bold; margin-left: 10px; }
+.icons { margin-top: 10px; }
+.icon { margin-right: 10px; cursor: pointer; }
+.reply-form { display: none; margin-top: 10px; }
+.media { margin-top: 10px; }
+button { padding: 10px 15px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+button:hover { background-color: #45a049; }
